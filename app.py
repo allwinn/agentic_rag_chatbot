@@ -15,7 +15,7 @@ import json
 import os
 
 import chainlit as cl
-from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError, OutputTokenLimitExceeded, UsageLimitExceeded
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -99,6 +99,9 @@ async def on_message(message: cl.Message):
         if not answer.content.strip() and result is not None:
             answer.content = str(result.output)
         cl.user_session.set("history", run.all_messages())
+    except OutputTokenLimitExceeded:
+        answer.content = ("That answer ran too long for the model's output limit. Try narrowing it "
+                          "down, e.g. one city or property type, or ask for the top 5.")
     except UsageLimitExceeded:
         answer.content = ("I needed too many steps for that one. Could you make the question "
                           "a bit more specific (city, type, budget)?")

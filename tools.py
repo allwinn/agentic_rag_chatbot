@@ -112,12 +112,22 @@ def search_wasalt_listings(
     return {"total_matching": total, "shown": len(rows), "listings": rows}
 
 
+DistrictSort = Literal["listings", "price_per_sqm_asc", "price_per_sqm_desc", "avg_price_asc", "avg_price_desc"]
+_DISTRICT_SORT = {
+    "listings": "listings DESC",
+    "price_per_sqm_asc": "avg_price_per_sqm ASC", "price_per_sqm_desc": "avg_price_per_sqm DESC",
+    "avg_price_asc": "avg_price ASC", "avg_price_desc": "avg_price DESC",
+}
+
+
 def wasalt_market_stats(
     city: Optional[str] = None,
     property_type: Optional[str] = None,
     district: Optional[str] = None,
     bedrooms: Optional[int] = None,
     group_by_district: bool = False,
+    sort_districts_by: DistrictSort = "listings",
+    top_n: int = 8,
 ) -> dict:
     where, p = ["price IS NOT NULL"], []
     if city:
@@ -132,9 +142,10 @@ def wasalt_market_stats(
     select = """COUNT(*) AS listings, ROUND(AVG(price)) AS avg_price, MIN(price) AS min_price,
                 MAX(price) AS max_price, ROUND(AVG(price_per_sqm)) AS avg_price_per_sqm"""
     if group_by_district:
+        order = _DISTRICT_SORT.get(sort_districts_by, "listings DESC")
         rows = _rows(f"""SELECT city, district, {select} FROM wasalt_listings WHERE {w}
-                         GROUP BY city, district HAVING COUNT(*) >= 2
-                         ORDER BY listings DESC LIMIT 15""", p)
+                         GROUP BY city, district HAVING COUNT(*) >= 2 AND AVG(price_per_sqm) IS NOT NULL
+                         ORDER BY {order} LIMIT ?""", p + [max(1, min(top_n, 15))])
         return {"currency": "SAR", "by_district": rows,
                 "note": "Districts with fewer than 2 listings are omitted. Sample data, not the full market."}
     row = _rows(f"SELECT {select} FROM wasalt_listings WHERE {w}", p)[0]

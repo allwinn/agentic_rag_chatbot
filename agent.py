@@ -35,10 +35,15 @@ def build_model():
         api_key=os.getenv("OPENROUTER_API_KEY"),
         app_title="DarGlobal x Wasalt Property Agent",
     )
+    effort = os.getenv("REASONING_EFFORT", "low").lower()
     settings = OpenRouterModelSettings(
         temperature=0.2,
-        max_tokens=1200,
+        # Free routing often lands on reasoning models, whose hidden "thinking" counts
+        # against this budget, so leave plenty of room for the visible answer.
+        max_tokens=int(os.getenv("MAX_OUTPUT_TOKENS", "4000")),
         openrouter_models=MODELS[1:] or None,  # server-side fallback if the first model is down/rate-limited
+        # Keep reasoning short and don't send it back (ignored by non-reasoning models)
+        openrouter_reasoning=None if effort == "off" else {"effort": effort, "exclude": True},
     )
     return OpenRouterModel(MODELS[0], provider=provider, settings=settings)
 
@@ -64,8 +69,9 @@ How to work:
 5. Cite sources: link each listing or project as a markdown link [title](url).
 6. Scope: only property questions about this data. For other cities, rentals or topics outside
    the data, say what the data covers instead of guessing. Politely decline unrelated requests.
-7. Reply in the user's language (Arabic or English). Be concise: short intro, then a compact
-   list or table, then one line of caveats if needed (sample data, scraped date)."""
+7. Reply in the user's language (Arabic or English). Be concise: one intro line, then a compact
+   list or table of at most 8 rows, then one line of caveats if needed (sample data, scraped date).
+   Keep answers under about 250 words."""
 
 
 agent = Agent(build_model(), instructions=instructions, retries=2)
@@ -113,17 +119,23 @@ def wasalt_market_stats(
     district: str | None = None,
     bedrooms: int | None = None,
     group_by_district: bool = False,
+    sort_districts_by: tools.DistrictSort = "listings",
+    top_n: int = 8,
 ) -> dict:
     """Price statistics for Wasalt listings: count, average, min, max and average price per sqm (SAR).
 
     Args:
         city: e.g. "Riyadh".
-        property_type: e.g. "Villa".
+        property_type: e.g. "Villa" or "Apartment".
         district: limit to one district.
         bedrooms: exact bedroom count.
         group_by_district: true to compare districts side by side.
+        sort_districts_by: when grouping: listings, price_per_sqm_asc, price_per_sqm_desc,
+            avg_price_asc or avg_price_desc (e.g. "cheapest per sqm" -> price_per_sqm_asc).
+        top_n: number of districts to return when grouping (max 15).
     """
-    return tools.wasalt_market_stats(city, property_type, district, bedrooms, group_by_district)
+    return tools.wasalt_market_stats(city, property_type, district, bedrooms, group_by_district,
+                                     sort_districts_by, top_n)
 
 
 @agent.tool_plain
