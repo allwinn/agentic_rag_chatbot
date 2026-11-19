@@ -33,7 +33,25 @@ flowchart LR
 - **Scraping:** both sites embed their data as JSON in each page (`__NEXT_DATA__`), so the scrapers read it directly.
 - **Two stores:** SQLite for exact filters (price, bedrooms, district); LanceDB for hybrid semantic and keyword search over descriptions.
 - **Agent:** picks its own tools (listing search, market stats, project search, knowledge search, contact info, calculators) and cites every source.
-- **UI:** Chainlit, with each tool call visible as a step, and results shown as property cards (photo, price, size, link) with a map of the listings, and three clickable follow-up questions after each answer.
+- **UI:** Chainlit, with each tool call visible as a step (see the Features section below).
+
+## Features
+
+| Feature | What you see |
+| --- | --- |
+| **Agentic tool use** | The agent chooses its own tools per question, and combines several sources for comparisons |
+| **Query transparency** | Each tool call is an expandable step showing the data source, the exact query and the raw result |
+| **Property cards** | Listings and DarGlobal projects appear as cards under the answer: photo, price, type, district, bedrooms, area, price per m², and a link to the source page |
+| **Map view** | A **Map** tab plots the Wasalt listings with numbered pins that match the cards; click a pin for price and link |
+| **Follow-up questions** | Three clickable follow-up questions after every answer (for example a narrower filter, the other city, or a mortgage on a result); clicking one continues the conversation |
+| **Contact routes** | DarGlobal's official phone, WhatsApp and office; for Wasalt, a link to the listing (private sellers' numbers are never shared) |
+| **English and Arabic** | Ask in either language; the answer comes back in the same one |
+| **Conversation memory** | Follow-ups like "the cheapest one" or "same in Jeddah" refer back to earlier answers in the session |
+| **Starter questions** | Six one-click examples on the home screen, each using several tools |
+
+**How they're built**
+- **Cards and map:** the listing tools pass each result's photo URL and coordinates to the UI but leave them out of what the model sees, so they cost no input tokens. The map uses Leaflet, bundled in `public/vendor/` (no CDN), with OpenStreetMap tiles. The cards are a custom Chainlit element (`public/elements/PropertyResults.jsx`).
+- **Follow-ups:** the agent writes three suggestions at the end of the same reply, after a hidden marker, so there's no extra model call. The app strips them from the text and shows them as buttons. If a model leaves them out, the app falls back to suggestions based on the tools used.
 
 ## Data sources
 
