@@ -2,8 +2,6 @@
 
 **Live demo: https://darglobal-agent.allwinnoble.com**
 
-![Maskan answering with property cards and follow-up questions](docs/screenshot.png)
-
 An AI chatbot that answers questions about **DarGlobal's 38 projects** and **Wasalt listings in Riyadh and Jeddah**, in English or Arabic.
 
 > Independent demo built from publicly available data. Not affiliated with DarGlobal or Wasalt.
@@ -54,6 +52,21 @@ flowchart LR
 **How they're built**
 - **Cards and map:** the listing tools pass each result's photo URL and coordinates to the UI but leave them out of what the model sees, so they cost no input tokens. The map uses Leaflet, bundled in `public/vendor/` (no CDN), with OpenStreetMap tiles. The cards are a custom Chainlit element (`public/elements/PropertyResults.jsx`).
 - **Follow-ups:** the agent writes three suggestions at the end of the same reply, after a hidden marker, so there's no extra model call. The app strips them from the text and shows them as buttons. If a model leaves them out, the app falls back to suggestions based on the tools used.
+
+## Business value
+
+| Use case | Value | Who benefits |
+| --- | --- | --- |
+| **24/7 bilingual pre-sales concierge** | Instant answers about 38 projects in 6 countries, in English or Arabic, at any hour and in any time zone | International buyers; the sales team spends less time on repetitive questions |
+| **Lead qualification and handoff** | The conversation already captures what a buyer wants (city, budget, bedrooms, project), then routes them to the official phone, WhatsApp or the project's register-interest page | Sales: warmer, better-qualified leads |
+| **Cross-selling across the group** | A buyer comparing resale homes on Wasalt can be shown DarGlobal's off-plan projects in the same city, and the reverse | DarGlobal and Wasalt |
+| **Market intelligence** | Price per m² by district, comparable listings and price ranges, available on request | Sales and pricing teams, marketing, investors |
+| **Decision support** | Mortgage estimates and Gulf currency conversion inside the conversation | Buyers, especially those buying from abroad |
+| **Trust and compliance** | Every answer is cited, prices are never invented ("price on request"), and personal data is never shared (PDPL) | Brand reputation, legal and compliance |
+
+**How it could be measured:** share of questions answered without a person; response time; leads per conversation and lead-to-viewing conversion; and the most-asked cities, budgets and projects, which also act as a live demand signal for marketing.
+
+**What would come next for production:** capturing leads directly into the CRM (with the user's consent and a confirmation step), scheduled re-scraping or direct feeds from both platforms, conversation analytics, and the evaluation suite running in CI before every release.
 
 ## Data sources
 
