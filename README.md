@@ -35,6 +35,49 @@ flowchart LR
 - **Agent:** picks its own tools (listing search, market stats, project search, knowledge search, calculators) and cites every source.
 - **UI:** Chainlit, with each tool call visible as a step.
 
+## Data sources
+
+The agent can query three data sources, built by `build_index.py`:
+
+| # | Data source | Store | Contents | Queried by |
+| --- | --- | --- | --- | --- |
+| 1 | **DarGlobal projects** | SQLite: `darglobal_projects` | 38 projects: country, city, type, bedrooms, completion, status, link | `search_darglobal_projects` |
+| 2 | **Wasalt listings** | SQLite: `wasalt_listings`, `wasalt_projects` | 957 listings + 16 projects: price, district, type, bedrooms, area, price per sqm, link | `search_wasalt_listings`, `wasalt_market_stats` |
+| 3 | **Knowledge base** | LanceDB: `chunks` | Text from DarGlobal project pages and location guides, plus Wasalt listing summaries, searched by meaning and keywords | `search_knowledge` |
+
+Calculators (`calculate`, `mortgage_payment`, `convert_gulf_currency`) don't read any data; they do the maths on results.
+
+## See what the agent queried
+
+Every tool call shows up as a step above the answer. Click a step to see:
+
+- **the step name:** which tool, and therefore which data source, the agent chose;
+- **Input:** the exact query the agent sent (its filters or search text);
+- **Output:** the raw data that came back, which the answer is built from.
+
+For example, *"Which Jeddah districts are cheapest per sqm for apartments?"* shows:
+
+```
+▸ wasalt_market_stats                      ← data source 2: Wasalt listings
+  Input
+  {
+    "city": "Jeddah",
+    "property_type": "Apartment",
+    "group_by_district": true,
+    "sort_districts_by": "price_per_sqm_asc"
+  }
+  Output
+  {
+    "currency": "SAR",
+    "by_district": [
+      {"district": "…", "listings": 9, "avg_price": …, "avg_price_per_sqm": …},
+      …
+    ]
+  }
+```
+
+A comparison question such as *"Compare Trump Tower Jeddah with apartments for sale in Jeddah"* shows two steps, `search_knowledge` (knowledge base) and then `search_wasalt_listings` (Wasalt), so you can see the agent combine both sources. Every listing or project in the answer also links to its source page.
+
 ## Try asking
 
 - *4-bedroom villas in Riyadh under 3 million SAR*
