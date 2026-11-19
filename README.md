@@ -32,8 +32,8 @@ flowchart LR
 
 - **Scraping:** both sites embed their data as JSON in each page (`__NEXT_DATA__`), so the scrapers read it directly.
 - **Two stores:** SQLite for exact filters (price, bedrooms, district); LanceDB for hybrid semantic and keyword search over descriptions.
-- **Agent:** picks its own tools (listing search, market stats, project search, knowledge search, calculators) and cites every source.
-- **UI:** Chainlit, with each tool call visible as a step.
+- **Agent:** picks its own tools (listing search, market stats, project search, knowledge search, contact info, calculators) and cites every source.
+- **UI:** Chainlit, with each tool call visible as a step, and results shown as property cards (photo, price, size, link) with a map of the listings, and three clickable follow-up questions after each answer.
 
 ## Data sources
 
@@ -46,6 +46,8 @@ The agent can query three data sources, built by `build_index.py`:
 | 3 | **Knowledge base** | LanceDB: `chunks` | Text from DarGlobal project pages and location guides, plus Wasalt listing summaries, searched by meaning and keywords | `search_knowledge` |
 
 Calculators (`calculate`, `mortgage_payment`, `convert_gulf_currency`) don't read any data; they do the maths on results.
+
+**Contact requests** go to `get_contact_info`. For DarGlobal it returns the company's published contacts (customer service phone, WhatsApp, head office), saved by the scraper to `data/darglobal_contact.json`. For Wasalt it points to the listing page: sellers' and brokers' phone numbers are personal data and are never stored or shared.
 
 ## See what the agent queried
 
@@ -86,6 +88,21 @@ A comparison question such as *"Compare Trump Tower Jeddah with apartments for s
 - *Compare Trump Tower Jeddah with apartments for sale in Jeddah*
 - *ما هي أرخص الفلل في جدة؟*
 
+## Evaluation
+
+`evals.py` runs 18 test questions against the live agent and checks each answer automatically:
+
+- **Tool selection:** did the agent call the right tool(s)?
+- **Facts:** are the key numbers and names correct? Expected values are computed from the database at run time, so the tests stay valid after a re-scrape.
+- **Citations:** are sources linked?
+- **Guardrails:** does it decline out-of-scope and prompt-injection requests, reply in Arabic when asked in Arabic, avoid inventing DarGlobal prices, and never share a private seller's phone number?
+
+```bash
+python evals.py              # writes evals/results.md and evals/results.json
+```
+
+Latest results: [evals/results.md](evals/results.md)
+
 ## Run locally
 
 ```bash
@@ -114,9 +131,10 @@ agent.py          Agent and tools
 tools.py          Database queries, hybrid search, calculators
 embeddings.py     Embedding model
 build_index.py    Builds SQLite + LanceDB from scraped data
+evals.py          Evaluation suite (18 cases)
 scrapers/         DarGlobal and Wasalt scrapers
 data/             Built database and index
-public/           Branding (logo, theme)
+public/           Branding, property cards + map component
 ```
 
 ## Stack

@@ -13,13 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+from dataclasses import dataclass, field
 
 os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 import sys
 from datetime import date
 
 from dotenv import load_dotenv
-from pydantic_ai import Agent, ModelRetry
+from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
@@ -60,26 +61,67 @@ How to work:
    (search_wasalt_listings, wasalt_market_stats, search_darglobal_projects).
    Descriptions, amenities, design, location details, "tell me about X" -> search_knowledge.
    Questions that span both sites -> call tools for each, then compare.
+   Contact or enquiry requests ("how do I contact", "call", "book a viewing") -> get_contact_info.
+   Never invent phone numbers or emails, and never share private sellers' or brokers' details.
 2. Any arithmetic (price per sqm, differences, %, payments, currency) -> calculate,
    mortgage_payment or convert_gulf_currency. Never do maths in your head.
 3. Ground every fact in tool results. If the tools return nothing relevant, say so plainly.
    Never invent listings, prices, dates or amenities.
 4. Prices: Wasalt prices come from the listing. DarGlobal rarely publishes unit prices:
    say "price on request" unless a tool result clearly states a unit price for that project.
-5. Cite sources: link each listing or project as a markdown link [title](url).
+5. Cite sources: link each listing or project as a markdown link [title](url), using the url from
+   the tool result. This also applies to comparisons and long answers: if links don't fit in the
+   text, end with a line "Sources:" listing them.
 6. Scope: only property questions about this data. For other cities, rentals or topics outside
    the data, say what the data covers instead of guessing. Politely decline unrelated requests.
 7. Reply in the user's language (Arabic or English). Be concise: one intro line, then a compact
    list or table of at most 8 rows, then one line of caveats if needed (sample data, scraped date).
-   Keep answers under about 250 words."""
+   Keep answers under about 250 words.
+8. Follow-ups: end every reply with a line containing exactly <<<FOLLOWUPS>>> followed by three
+   short follow-up questions the user might ask next (max 10 words each, in the user's language),
+   separated by " | ". Make them specific to this answer and answerable from the data, e.g. a
+   narrower filter, a comparison with the other city or source, or a calculation on a result."""
 
 
-agent = Agent(build_model(), instructions=instructions, retries=2)
+FOLLOWUP_MARKER = "<<<FOLLOWUPS>>>"
+
+
+def split_followups(text: str) -> tuple[str, list[str]]:
+    """Separate the answer from the follow-up questions the model appends after the marker."""
+    if FOLLOWUP_MARKER not in text:
+        return text.strip(), []
+    answer, _, tail = text.partition(FOLLOWUP_MARKER)
+    parts = [p for chunk in tail.split("|") for p in chunk.split("\n")]
+    qs = []
+    for p in parts:
+        q = p.strip().lstrip("-*•0123456789.) ").strip().strip('"').strip()
+        if 4 <= len(q) <= 120 and q not in qs:
+            qs.append(q)
+    return answer.strip(), qs[:3]
+
+
+@dataclass
+class Deps:
+    """Per-request state. `shown` collects the listings/projects the tools returned, with
+    image and coordinates, so the UI can render cards and a map without sending those
+    fields to the model (saves tokens)."""
+    shown: list[dict] = field(default_factory=list)
+
+    def capture(self, rows: list[dict], source: str) -> None:
+        seen = {r["url"] for r in self.shown}
+        for r in rows:
+            if r.get("url") and r["url"] not in seen:
+                self.shown.append({**r, "source": source})
+                seen.add(r["url"])
+
+
+agent = Agent(build_model(), instructions=instructions, deps_type=Deps, retries=2)
 
 
 # ------------------------------------------------------------------ tools
-@agent.tool_plain
+@agent.tool
 def search_wasalt_listings(
+    ctx: RunContext[Deps],
     city: str | None = None,
     property_type: str | None = None,
     district: str | None = None,
@@ -107,9 +149,11 @@ def search_wasalt_listings(
         sort_by: price_asc, price_desc, price_per_sqm_asc, area_desc or newest.
         limit: rows to return (max 15).
     """
-    return tools.search_wasalt_listings(city, property_type, district, min_price, max_price,
-                                        min_bedrooms, max_bedrooms, min_area_sqm, max_area_sqm,
-                                        sort_by, limit)
+    res = tools.search_wasalt_listings(city, property_type, district, min_price, max_price,
+                                       min_bedrooms, max_bedrooms, min_area_sqm, max_area_sqm,
+                                       sort_by, limit)
+    ctx.deps.capture(res["listings"], "wasalt")
+    return {**res, "listings": tools.strip_ui_fields(res["listings"])}
 
 
 @agent.tool_plain
@@ -138,8 +182,9 @@ def wasalt_market_stats(
                                      sort_districts_by, top_n)
 
 
-@agent.tool_plain
+@agent.tool
 def search_darglobal_projects(
+    ctx: RunContext[Deps],
     country: str | None = None,
     city: str | None = None,
     project_type: str | None = None,
@@ -163,8 +208,11 @@ def search_darglobal_projects(
     """
     if status not in (None, "Off-plan", "Sold out", "Completed", "Completion date passed", "Unknown"):
         raise ModelRetry("status must be one of: Off-plan, Sold out, Completed, Completion date passed, Unknown")
-    return tools.search_darglobal_projects(country, city, project_type, completion_year_from,
-                                           completion_year_to, status, bedrooms, name_contains)
+    res = tools.search_darglobal_projects(country, city, project_type, completion_year_from,
+                                          completion_year_to, status, bedrooms, name_contains)
+    if res["count"] <= 12:  # don't flood the UI when the agent lists everything
+        ctx.deps.capture(res["projects"], "darglobal")
+    return {**res, "projects": tools.strip_ui_fields(res["projects"])}
 
 
 @agent.tool_plain
@@ -183,6 +231,20 @@ def search_knowledge(query: str, source: str | None = None, city: str | None = N
     if source not in (None, "darglobal", "wasalt"):
         raise ModelRetry('source must be "darglobal", "wasalt" or omitted')
     return tools.search_knowledge(query, source, city, min(limit, 10))
+
+
+@agent.tool_plain
+def get_contact_info(source: str, listing_url: str | None = None, project_name: str | None = None) -> dict:
+    """How to contact DarGlobal or a Wasalt advertiser. Use for any contact, enquiry or viewing request.
+
+    Args:
+        source: "darglobal" for the developer's official contacts, "wasalt" for a listing's advertiser.
+        listing_url: for Wasalt, the listing's url from a previous search result.
+        project_name: for DarGlobal, the project the user is interested in, e.g. "DG1".
+    """
+    if source not in ("darglobal", "wasalt"):
+        raise ModelRetry('source must be "darglobal" or "wasalt"')
+    return tools.get_contact_info(source, listing_url, project_name)
 
 
 @agent.tool_plain
@@ -225,17 +287,19 @@ def convert_gulf_currency(amount: float, from_currency: str, to_currency: str) -
 async def _chat() -> None:
     history = []
     if len(sys.argv) > 1:
-        result = await agent.run(" ".join(sys.argv[1:]))
-        print(result.output)
+        result = await agent.run(" ".join(sys.argv[1:]), deps=Deps())
+        answer, followups = split_followups(result.output)
+        print(answer + ("\n\nFollow-ups: " + " | ".join(followups) if followups else ""))
         return
     print(f"Models: {MODELS}. Type 'exit' to quit.")
     while True:
         q = input("\nYou: ").strip()
         if q.lower() in {"exit", "quit"}:
             break
-        result = await agent.run(q, message_history=history)
+        result = await agent.run(q, message_history=history, deps=Deps())
         history = result.all_messages()
-        print(f"\nAgent: {result.output}")
+        answer, followups = split_followups(result.output)
+        print(f"\nAgent: {answer}" + ("\n\nFollow-ups: " + " | ".join(followups) if followups else ""))
 
 
 if __name__ == "__main__":

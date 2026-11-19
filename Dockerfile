@@ -25,7 +25,7 @@ COPY chainlit_config.toml .chainlit/config.toml
 COPY translations/en-US.json .chainlit/translations/en-US.json
 COPY public ./public
 # Pre-built data (run build_index.py before docker build)
-COPY data/properties.db data/index_report.json data/
+COPY data/properties.db data/index_report.json data/darglobal_contact.json data/
 COPY data/lancedb data/lancedb
 RUN chown -R app:app /app /opt/models
 USER app

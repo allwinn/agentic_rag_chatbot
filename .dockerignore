@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.git/
+data/raw/
+data/html/
+data/*.json
+data/*.jsonl
+!data/index_report.json
+!data/darglobal_contact.json
+.files/

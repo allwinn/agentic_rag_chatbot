@@ -106,7 +106,7 @@ def search_wasalt_listings(
     total = _db().execute(f"SELECT COUNT(*) FROM wasalt_listings WHERE {w}", p).fetchone()[0]
     rows = _rows(
         f"""SELECT title, property_type, city, district, price, currency, bedrooms, bathrooms,
-                   built_up_area_sqm, land_area_sqm, price_per_sqm, age, url
+                   built_up_area_sqm, land_area_sqm, price_per_sqm, age, url, image, lat, lon
             FROM wasalt_listings WHERE {w} ORDER BY {_SORT[sort_by]} LIMIT ?""",
         p + [max(1, min(limit, MAX_ROWS))])
     return {"total_matching": total, "shown": len(rows), "listings": rows}
@@ -181,10 +181,18 @@ def search_darglobal_projects(
     if name_contains:
         where.append("title LIKE ?"); p.append(f"%{name_contains}%")
     rows = _rows(f"""SELECT title, country, location, project_type, bedrooms_text, completion,
-                            status, url FROM darglobal_projects WHERE {' AND '.join(where)}
+                            status, url, image FROM darglobal_projects WHERE {' AND '.join(where)}
                      ORDER BY country, completion_year""", p)
     return {"count": len(rows), "projects": rows,
             "note": "DarGlobal does not publish unit prices on most project pages."}
+
+
+# Fields used only by the UI (cards, map). The agent strips them before the model sees results.
+UI_ONLY_FIELDS = ("image", "lat", "lon")
+
+
+def strip_ui_fields(rows: list[dict]) -> list[dict]:
+    return [{k: v for k, v in r.items() if k not in UI_ONLY_FIELDS} for r in rows]
 
 
 # ------------------------------------------------------------------ hybrid search (LanceDB)
@@ -240,6 +248,37 @@ def search_knowledge(
         if len(results) >= limit:
             break
     return {"query": query, "results": results}
+
+
+# ------------------------------------------------------------------ contact details
+CONTACT_FILE = DATA / "darglobal_contact.json"
+
+
+def get_contact_info(source: str, url: Optional[str] = None, name: Optional[str] = None) -> dict:
+    """Official contact routes. DarGlobal: published company contacts. Wasalt: the listing page,
+    because advertiser phone numbers are personal data and are deliberately not stored."""
+    if source == "darglobal":
+        c = json.loads(CONTACT_FILE.read_text()) if CONTACT_FILE.exists() else {}
+        if not c:
+            return {"error": "DarGlobal contact data not available", "website": "https://darglobal.co.uk"}
+        out = {k: c[k] for k in ("company", "customer_service_phone", "whatsapp", "languages",
+                                 "head_office", "website", "how_to_enquire_about_a_project") if c.get(k)}
+        if name:
+            rows = _rows("SELECT title, url FROM darglobal_projects WHERE title LIKE ? LIMIT 1", [f"%{name}%"])
+            if rows:
+                out["project_page"] = rows[0]["url"]
+                out["project"] = rows[0]["title"]
+        out["note"] = "Official company contacts published on darglobal.co.uk."
+        return out
+    if source == "wasalt":
+        out = {"how_to_contact": ("Open the listing on Wasalt and use its Call / WhatsApp / Message "
+                                  "buttons to reach the advertiser (owner or licensed broker)."),
+               "note": ("Advertiser phone numbers and names are personal data; this assistant does not "
+                        "store or share them.")}
+        if url:
+            out["listing_page"] = url
+        return out
+    return {"error": 'source must be "darglobal" or "wasalt"'}
 
 
 # ------------------------------------------------------------------ deterministic maths

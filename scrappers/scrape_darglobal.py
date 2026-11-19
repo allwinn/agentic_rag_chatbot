@@ -78,6 +78,39 @@ def fetch_page(client: httpx.Client, url: str) -> tuple[str, dict | None, str, s
     return "html_text", None, "\n".join(lines), str(r.url)
 
 
+def save_contact(html_text: str, scraped_at: str) -> None:
+    """Save DarGlobal's published company contacts (schema.org Organization block + WhatsApp link)."""
+    org = None
+    for blk in re.findall(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', html_text, re.S):
+        try:
+            j = json.loads(blk)
+        except ValueError:
+            continue
+        for it in (j if isinstance(j, list) else j.get("@graph", [j])):
+            if isinstance(it, dict) and it.get("@type") == "Organization" and it.get("contactPoint"):
+                org = it
+    if not org:
+        print("  ! no Organization contact block found")
+        return
+    cp, ad = org.get("contactPoint", {}), org.get("address", {})
+    wa = re.search(r"api\.whatsapp\.com/send\?phone=(\d+)", html_text)
+    contact = {
+        "source": "darglobal", "company": "Dar Global PLC", "website": org.get("url", BASE),
+        "customer_service_phone": cp.get("telephone"),
+        "whatsapp": f"https://wa.me/{wa.group(1)}" if wa else None,
+        "languages": cp.get("availableLanguage"),
+        "head_office": ", ".join(x for x in [ad.get("streetAddress"), ad.get("addressLocality"),
+                                            ad.get("addressRegion"), ad.get("addressCountry")] if x),
+        "social": org.get("sameAs", []),
+        "how_to_enquire_about_a_project": ("Use 'Register interest' on the project's page, call "
+                                           "Customer Service, or message on WhatsApp."),
+        "collected_from": f"{LISTING_URL} (schema.org Organization data)",
+        "scraped_at": scraped_at,
+    }
+    (OUT / "darglobal_contact.json").write_text(json.dumps(contact, indent=2, ensure_ascii=False))
+    print("Saved company contact details")
+
+
 def strip_html(s: str) -> str:
     s = re.sub(r"<[^>]+>", " ", s)
     return re.sub(r"\s+", " ", html.unescape(s)).strip()
@@ -120,7 +153,10 @@ def main() -> None:
     scraped_at = datetime.now(timezone.utc).isoformat()
 
     with httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True) as client:
-        nd = next_data(client, LISTING_URL)
+        listing_html = client.get(LISTING_URL).text
+        save_contact(listing_html, scraped_at)
+        node = HTMLParser(listing_html).css_first("script#__NEXT_DATA__")
+        nd = json.loads(node.text())
         attrs = nd["props"]["pageProps"]["pageData"]["attributes"]
 
         # 1) project cards from country tabs
