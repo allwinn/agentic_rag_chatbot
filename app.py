@@ -40,17 +40,32 @@ def _short(obj, n: int = 3000) -> str:
 
 @cl.set_starters
 async def starters():
+    # Each starter needs 2+ tools, often across different data sources, so the steps show
+    # the agent planning: SQL (DarGlobal / Wasalt), knowledge search and calculators.
     return [
-        cl.Starter(label="Villas in Riyadh under SAR 3M",
-                   message="Show me 4-bedroom villas in Riyadh under 3 million SAR, cheapest first."),
-        cl.Starter(label="Cheapest districts per sqm",
-                   message="Which Jeddah districts have the lowest average price per sqm for apartments?"),
-        cl.Starter(label="Tell me about DG1",
-                   message="Tell me about DarGlobal's DG1 project: location, design and completion."),
-        cl.Starter(label="DarGlobal vs Wasalt in Jeddah",
-                   message="Compare Trump Tower Jeddah by DarGlobal with apartments for sale in Jeddah on Wasalt."),
-        cl.Starter(label="بالعربي: فلل في جدة",
-                   message="ما هي أرخص الفلل المعروضة للبيع في جدة؟"),
+        cl.Starter(
+            label="Dubai budget, Saudi home",
+            message=("I live in Dubai and have AED 5 million. What can I buy in Jeddah on Wasalt "
+                     "with that budget, and which DarGlobal projects are in Jeddah?")),
+        cl.Starter(
+            label="Riyadh vs Jeddah villas",
+            message=("Compare villas in Riyadh and Jeddah: average price, average price per sqm, "
+                     "and which city gives more space for the money?")),
+        cl.Starter(
+            label="Luxury-brand residences",
+            message=("Which DarGlobal projects are designed with luxury brands like Pagani, "
+                     "Lamborghini, Aston Martin or Missoni? Where are they and when do they complete?")),
+        cl.Starter(
+            label="Cheapest villa + mortgage",
+            message=("Find the cheapest 4-bedroom villa in Riyadh and estimate the monthly mortgage "
+                     "with 25% down over 20 years.")),
+        cl.Starter(
+            label="Trump Tower Jeddah vs market",
+            message=("Tell me about DarGlobal's Trump Tower Jeddah, then show what similar apartments "
+                     "for sale in Jeddah cost on Wasalt.")),
+        cl.Starter(
+            label="بالعربي: الرياض أم جدة؟",
+            message="قارن بين متوسط أسعار الشقق في الرياض وجدة، وما هي أرخص الأحياء للشقق في كل مدينة؟"),
     ]
 
 
