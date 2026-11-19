@@ -2,6 +2,8 @@
 
 **Live demo: https://darglobal-agent.allwinnoble.com**
 
+![Maskan answering with property cards and follow-up questions](docs/screenshot.png)
+
 An AI chatbot that answers questions about **DarGlobal's 38 projects** and **Wasalt listings in Riyadh and Jeddah**, in English or Arabic.
 
 > Independent demo built from publicly available data. Not affiliated with DarGlobal or Wasalt.
