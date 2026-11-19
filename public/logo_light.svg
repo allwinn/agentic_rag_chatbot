@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="64" viewBox="0 0 300 64">
+  <g fill="none" stroke="#A8844F" stroke-width="2.4">
+    <path d="M10 56 V26 a17 17 0 0 1 34 0 V56"/>
+    <path d="M19 56 V30 a8 8 0 0 1 16 0 V56"/>
+    <path d="M4 56 H50"/>
+  </g>
+  <text x="62" y="38" font-family="'Cormorant Garamond', Georgia, serif" font-size="30" letter-spacing="5" fill="#1E1B18">MASKAN</text>
+  <text x="64" y="55" font-family="Inter, Helvetica, Arial, sans-serif" font-size="9.5" letter-spacing="3.2" fill="#A8844F">AI PROPERTY CONCIERGE</text>
+</svg>

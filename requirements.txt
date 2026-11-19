@@ -1,0 +1,11 @@
+# scraping
+httpx
+selectolax>=0.3.21
+playwright
+# index + search
+lancedb
+pyarrow
+fastembed
+# agent
+pydantic-ai-slim[openai]
+python-dotenv

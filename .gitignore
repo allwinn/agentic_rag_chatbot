@@ -1,0 +1,42 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Chainlit runtime (Docker copies config + translations in; recreate locally with cp) ---
+.chainlit/
+.files/
+
+# --- Scraping leftovers (large, regenerable) ---
+data/raw/
+data/html/
+# keep: data/properties.db, data/lancedb/, data/index_report.json, data/*.json(l)
+
+# --- Embedding model cache (downloaded at build time) ---
+.cache/
+local_cache/
+fastembed_cache/
+
+# --- Browser profile used for the CDP scrape ---
+dg-chrome-profile/
+
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# --- Logs / misc ---
+*.log
+*.zip

@@ -1,0 +1,7 @@
+# Runtime only (no scraping libraries) - used by the Docker image
+chainlit==2.12.0
+pydantic-ai-slim[openai]==2.71.0
+lancedb==0.41.0
+pyarrow
+fastembed==0.9.1
+python-dotenv

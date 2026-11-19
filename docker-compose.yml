@@ -1,0 +1,21 @@
+services:
+  property-agent:
+    build: .
+    container_name: property-agent
+    env_file:
+      - .env
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.property-agent.rule=Host(`${APP_DOMAIN}`)"
+      - "traefik.http.routers.property-agent.entrypoints=websecure"
+      - "traefik.http.routers.property-agent.tls=true"
+      - "traefik.http.routers.property-agent.tls.certresolver=mytlschallenge"
+      - "traefik.http.services.property-agent.loadbalancer.server.port=8000"
+    networks:
+      - root_default
+    restart: unless-stopped
+    mem_limit: 1500m
+
+networks:
+  root_default:
+    external: true

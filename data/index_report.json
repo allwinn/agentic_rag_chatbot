@@ -1,0 +1,33 @@
+{
+  "built_at": "2026-11-19T04:14:02.226912+00:00",
+  "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "embedding_backend": "fastembed",
+  "dim": 384,
+  "darglobal_projects": 38,
+  "darglobal_projects_by_country": {
+    "UAE": 9,
+    "Spain": 3,
+    "Qatar": 2,
+    "Oman": 14,
+    "UK": 2,
+    "Saudi Arabia": 8
+  },
+  "darglobal_docs_after_dedupe": 48,
+  "boilerplate_lines_removed": 47,
+  "duplicate_pages_merged": 4,
+  "wasalt_listings": 955,
+  "wasalt_listings_by_city_type": {
+    "Riyadh / Villa": 238,
+    "Riyadh / Apartment": 237,
+    "Jeddah / Villa": 240,
+    "Jeddah / Apartment": 240
+  },
+  "wasalt_projects": 16,
+  "wasalt_dropped_non_residential": 2,
+  "chunks_total": 1062,
+  "chunks_by_source": {
+    "darglobal": 91,
+    "wasalt": 971
+  },
+  "data_scraped_at": "2026-11-19T03:59:51.524119+00:00"
+}
