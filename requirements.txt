@@ -9,3 +9,6 @@ fastembed
 # agent
 pydantic-ai-slim[openai]
 python-dotenv
+chainlit
+# observability (optional)
+langfuse

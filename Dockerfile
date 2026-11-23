@@ -20,7 +20,7 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/models /opt/models
 # App code
-COPY agent.py tools.py embeddings.py app.py chainlit.md ./
+COPY agent.py tools.py embeddings.py observability.py app.py chainlit.md ./
 COPY chainlit_config.toml .chainlit/config.toml
 COPY translations/en-US.json .chainlit/translations/en-US.json
 COPY public ./public

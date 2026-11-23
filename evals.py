@@ -1,5 +1,5 @@
 """
-Evaluation suite for the property agent (18 cases).
+Evaluation suite for the property agent (19 cases).
 
 Each case checks four things, all automatically:
   tools     did the agent call the right tool(s)?          (tool-selection accuracy)
@@ -44,8 +44,11 @@ import os
 import httpx
 from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
 
+import observability
 import tools
 from agent import MODELS, Deps, agent, split_followups
+
+RUN_ID = datetime.now(timezone.utc).strftime("eval-%Y%m%d-%H%M")
 
 BACKOFF_S = [30, 60, 120, 240, 300]
 RETRY_STATUS = {408, 429, 500, 502, 503, 504}
@@ -126,6 +129,12 @@ CASES = [
          facts=[Text(lambda: [r[0] for r in DB.execute(
              "SELECT title FROM darglobal_projects WHERE completion_year = 2027").fetchall()] or ["?"],
              label="a 2027 project")]),
+    Case("dg-uae-villas-synonym", "SQL search",
+         "Which DarGlobal villa projects are there in the United Arab Emirates?",
+         tools=[{"search_darglobal_projects"}], cite=True,
+         facts=[Text(lambda: [r[0] for r in DB.execute(
+             "SELECT title FROM darglobal_projects WHERE country = 'UAE' AND project_type LIKE '%Villa%'"
+         ).fetchall()] or ["?"], label="a UAE villa project")]),
     Case("dg-about-dg1", "Knowledge search",
          "Tell me about DarGlobal's DG1 project.",
          tools=[DG_TOOLS], cite=True, no_price=True,
@@ -252,6 +261,19 @@ async def run_with_backoff(question: str, retries: int):
 
 
 async def run_case(case: Case, retries: int = 5) -> dict:
+    """Run one case inside its own Langfuse trace (if enabled) and attach the checks as scores."""
+    with observability.trace(f"eval:{case.id}", session_id=RUN_ID, tags=["eval", case.category],
+                             input=case.question) as span:
+        r = await _run_case(case, retries)
+        observability.finish(span, output=r["answer"], error=r["error"],
+                             metadata={"tools": r["tool_calls"], "checks": r["checks"]})
+        observability.score(span, "eval_pass", 1.0 if r["passed"] else 0.0)
+        for k, v in r["checks"].items():
+            observability.score(span, f"check:{k}", 1.0 if v else 0.0)
+    return r
+
+
+async def _run_case(case: Case, retries: int = 5) -> dict:
     t0 = time.perf_counter()
     try:
         result = await run_with_backoff(case.question, retries)
@@ -381,6 +403,8 @@ async def main() -> None:
     ap.add_argument("--fresh", action="store_true", help="discard earlier results and start over")
     args = ap.parse_args()
 
+    if observability.setup():
+        print(f"Langfuse: each case is traced under session '{RUN_ID}' with pass/fail scores")
     info = check_key()
     free_tier = info.get("is_free_tier")
     budget = args.max_requests or (40 if free_tier in (True, None) else 500)
@@ -430,6 +454,7 @@ async def main() -> None:
         if i < len(cases):
             await asyncio.sleep(args.delay)
 
+    observability.flush()  # make sure every trace and score reaches Langfuse before exiting
     print(f"\nModel requests used this run: {used}")
     print("\n" + save(results, meta))
 

@@ -27,10 +27,12 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import UsageLimits
 
+import observability
 from agent import FOLLOWUP_MARKER, MODELS, Deps, agent, split_followups
 import tools
 
 MAX_CARDS = 6
+observability.setup()  # Langfuse tracing, if LANGFUSE_* keys are set
 
 MAX_MESSAGES_PER_SESSION = int(os.getenv("MAX_MESSAGES_PER_SESSION", "30"))
 LIMITS = UsageLimits(request_limit=8)  # max model calls per answer: stops tool-call loops
@@ -220,48 +222,57 @@ async def respond(question: str):
     steps: dict[str, cl.Step] = {}
     followups: list[str] = []
 
-    try:
-        async with agent.run_stream_events(question, message_history=history,
-                                           usage_limits=LIMITS, deps=deps) as run:
-            async for event in run:
-                if isinstance(event, FunctionToolCallEvent):
-                    tools_used.append(event.part.tool_name)
-                    # Same parent as the answer message, so steps render above the answer
-                    run_step = cl.context.current_step
-                    step = cl.Step(name=event.part.tool_name, type="tool", show_input="json",
-                                   parent_id=run_step.id if run_step else None)
-                    step.input = event.part.args_as_dict()
-                    await step.send()
-                    steps[event.part.tool_call_id] = step
-                elif isinstance(event, FunctionToolResultEvent):
-                    step = steps.get(event.tool_call_id)
-                    if step:
-                        # field is `part` in pydantic-ai 2.x (`result` in older 1.x releases)
-                        returned = getattr(event, "part", None) or getattr(event, "result", None)
-                        step.output = _short(getattr(returned, "content", returned))
-                        step.language = "json"
-                        await step.update()
-                elif isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
-                    if event.part.content:
-                        await say(event.part.content)
-                elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
-                    await say(event.delta.content_delta)
-            result = run.result
-        text, followups = split_followups(str(result.output) if result is not None else "")
-        if answer is None:
-            answer = cl.Message(content=text)
-        else:
-            answer.content = text  # drop anything held back by the marker filter
-        cl.user_session.set("history", run.all_messages())
-        element = _results_element(deps)
-        if element:
-            answer.elements = [element]
-        followups = followups or _fallback_followups(tools_used, question)
-    except Exception as e:
-        if answer is None:
-            answer = cl.Message(content="")
-        answer.content = _error_text(e)
-        followups = []
+    error_text = None
+    # One Langfuse trace per question (no-op when Langfuse keys are not set)
+    with observability.trace("chat", session_id=cl.context.session.id,
+                             tags=["chat"], metadata={"models": ",".join(MODELS)},
+                             input=question) as lf_span:
+        try:
+            async with agent.run_stream_events(question, message_history=history,
+                                               usage_limits=LIMITS, deps=deps) as run:
+                async for event in run:
+                    if isinstance(event, FunctionToolCallEvent):
+                        tools_used.append(event.part.tool_name)
+                        # Same parent as the answer message, so steps render above the answer
+                        run_step = cl.context.current_step
+                        step = cl.Step(name=event.part.tool_name, type="tool", show_input="json",
+                                       parent_id=run_step.id if run_step else None)
+                        step.input = event.part.args_as_dict()
+                        await step.send()
+                        steps[event.part.tool_call_id] = step
+                    elif isinstance(event, FunctionToolResultEvent):
+                        step = steps.get(event.tool_call_id)
+                        if step:
+                            # field is `part` in pydantic-ai 2.x (`result` in older 1.x releases)
+                            returned = getattr(event, "part", None) or getattr(event, "result", None)
+                            step.output = _short(getattr(returned, "content", returned))
+                            step.language = "json"
+                            await step.update()
+                    elif isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+                        if event.part.content:
+                            await say(event.part.content)
+                    elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                        await say(event.delta.content_delta)
+                result = run.result
+            text, followups = split_followups(str(result.output) if result is not None else "")
+            if answer is None:
+                answer = cl.Message(content=text)
+            else:
+                answer.content = text  # drop anything held back by the marker filter
+            cl.user_session.set("history", run.all_messages())
+            element = _results_element(deps)
+            if element:
+                answer.elements = [element]
+            followups = followups or _fallback_followups(tools_used, question)
+        except Exception as e:
+            if answer is None:
+                answer = cl.Message(content="")
+            answer.content = _error_text(e)
+            error_text = f"{type(e).__name__}: {e}"
+            followups = []
+        observability.finish(
+            lf_span, output=answer.content if answer else None, error=error_text,
+            metadata={"tools": tools_used, "followups": followups, "cards": len(deps.shown)})
 
     if followups:
         actions = [cl.Action(name="followup", payload={"q": q}, label=q, icon="corner-down-right")

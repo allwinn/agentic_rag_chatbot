@@ -53,6 +53,16 @@ flowchart LR
 - **Cards and map:** the listing tools pass each result's photo URL and coordinates to the UI but leave them out of what the model sees, so they cost no input tokens. The map uses Leaflet, bundled in `public/vendor/` (no CDN), with OpenStreetMap tiles. The cards are a custom Chainlit element (`public/elements/PropertyResults.jsx`).
 - **Follow-ups:** the agent writes three suggestions at the end of the same reply, after a hidden marker, so there's no extra model call. The app strips them from the text and shows them as buttons. If a model leaves them out, the app falls back to suggestions based on the tools used.
 
+## Observability (Langfuse)
+
+Every question is traced in [Langfuse](https://langfuse.com) when its keys are set in `.env` (it's optional; the app runs normally without them).
+
+- **One trace per question**, grouped by chat session: the question, the final answer, which tools were used and how many cards were shown.
+- **Inside each trace:** every model call (prompt, response, model, input and output tokens, latency) and every tool call (arguments and result).
+- **Evaluation runs** appear as `eval:<case>` traces under one session per run, each scored `eval_pass` and per check, so you can filter failures and compare runs.
+
+How it works: PydanticAI emits OpenTelemetry spans (`Agent.instrument_all()`), and the Langfuse SDK exports them. The setup lives in [`observability.py`](observability.py).
+
 ## Business value
 
 | Use case | Value | Who benefits |
@@ -123,7 +133,7 @@ A comparison question such as *"Compare Trump Tower Jeddah with apartments for s
 
 ## Evaluation
 
-`evals.py` runs 18 test questions against the live agent and checks each answer automatically:
+`evals.py` runs 19 test questions against the live agent and checks each answer automatically:
 
 - **Tool selection:** did the agent call the right tool(s)?
 - **Facts:** are the key numbers and names correct? Expected values are computed from the database at run time, so the tests stay valid after a re-scrape.
@@ -164,7 +174,8 @@ agent.py          Agent and tools
 tools.py          Database queries, hybrid search, calculators
 embeddings.py     Embedding model
 build_index.py    Builds SQLite + LanceDB from scraped data
-evals.py          Evaluation suite (18 cases)
+evals.py          Evaluation suite (19 cases)
+observability.py  Langfuse tracing (optional)
 scrapers/         DarGlobal and Wasalt scrapers
 data/             Built database and index
 public/           Branding, property cards + map component
@@ -172,7 +183,7 @@ public/           Branding, property cards + map component
 
 ## Stack
 
-Python · httpx · Playwright · SQLite · LanceDB · fastembed · PydanticAI · OpenRouter · Chainlit · Docker · Traefik
+Python · httpx · Playwright · SQLite · LanceDB · fastembed · PydanticAI · OpenRouter · Chainlit · Langfuse · Docker · Traefik
 
 ## Limitations
 

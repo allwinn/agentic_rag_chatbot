@@ -5,3 +5,4 @@ lancedb==0.41.0
 pyarrow
 fastembed==0.9.1
 python-dotenv
+langfuse==5.2.0

@@ -60,6 +60,7 @@ How to work:
 1. Pick the right tool. Exact filters, prices, counts or averages -> SQL tools
    (search_wasalt_listings, wasalt_market_stats, search_darglobal_projects).
    Descriptions, amenities, design, location details, "tell me about X" -> search_knowledge.
+   Don't call search_knowledge when the SQL tools already answer the question (lists, counts, prices).
    Questions that span both sites -> call tools for each, then compare.
    Contact or enquiry requests ("how do I contact", "call", "book a viewing") -> get_contact_info.
    Never invent phone numbers or emails, and never share private sellers' or brokers' details.
@@ -217,7 +218,7 @@ def search_darglobal_projects(
 
 @agent.tool_plain
 def search_knowledge(query: str, source: str | None = None, city: str | None = None,
-                     limit: int = 6) -> dict:
+                     limit: int = 4) -> dict:
     """Hybrid semantic + keyword search over DarGlobal project pages, location guides and
     Wasalt listing summaries. Use for descriptions, amenities, design partners, views,
     locations and anything not covered by exact filters.
@@ -226,11 +227,11 @@ def search_knowledge(query: str, source: str | None = None, city: str | None = N
         query: what to look for, in natural language (English or Arabic).
         source: "darglobal" or "wasalt" to restrict the search.
         city: restrict to a city, e.g. "Jeddah".
-        limit: number of passages (max 10).
+        limit: number of passages (default 4, max 8). Each is one project or document.
     """
     if source not in (None, "darglobal", "wasalt"):
         raise ModelRetry('source must be "darglobal", "wasalt" or omitted')
-    return tools.search_knowledge(query, source, city, min(limit, 10))
+    return tools.search_knowledge(query, source, city, max(1, min(limit, 8)))
 
 
 @agent.tool_plain
@@ -285,6 +286,15 @@ def convert_gulf_currency(amount: float, from_currency: str, to_currency: str) -
 
 # ------------------------------------------------------------------ CLI
 async def _chat() -> None:
+    import observability
+    observability.setup()
+    try:
+        await _chat_loop()
+    finally:
+        observability.flush()
+
+
+async def _chat_loop() -> None:
     history = []
     if len(sys.argv) > 1:
         result = await agent.run(" ".join(sys.argv[1:]), deps=Deps())

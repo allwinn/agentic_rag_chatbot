@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import json
 import operator
+import re
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
@@ -38,6 +39,32 @@ def _db() -> sqlite3.Connection:
 @lru_cache(maxsize=1)
 def _chunks():
     return lancedb.connect(LANCE_DIR).open_table("chunks")
+
+
+# ------------------------------------------------------------------ input normalisation
+# The model may write a place or type in many ways ("United Arab Emirates", "KSA", "فيلا").
+# Map them to the spelling stored in the database before filtering, so a synonym never
+# silently returns zero rows.
+_COUNTRY = {
+    "uae": "UAE", "u.a.e": "UAE", "united arab emirates": "UAE", "emirates": "UAE", "الإمارات": "UAE",
+    "الامارات": "UAE", "ksa": "Saudi Arabia", "saudi": "Saudi Arabia", "saudi arabia": "Saudi Arabia",
+    "kingdom of saudi arabia": "Saudi Arabia", "السعودية": "Saudi Arabia", "uk": "UK",
+    "united kingdom": "UK", "england": "UK", "britain": "UK", "great britain": "UK",
+    "المملكة المتحدة": "UK", "oman": "Oman", "عمان": "Oman", "عُمان": "Oman", "qatar": "Qatar",
+    "قطر": "Qatar", "spain": "Spain", "إسبانيا": "Spain", "اسبانيا": "Spain",
+}
+_CITY = {"الرياض": "Riyadh", "riyadh": "Riyadh", "جدة": "Jeddah", "جده": "Jeddah", "jeddah": "Jeddah",
+         "jedda": "Jeddah", "دبي": "Dubai", "مسقط": "Muscat", "الدوحة": "Doha", "لندن": "London"}
+_TYPE = {"villa": "Villa", "villas": "Villa", "فيلا": "Villa", "فلل": "Villa", "فيلل": "Villa",
+         "townhouse": "Villa", "apartment": "Apartment", "apartments": "Apartment", "flat": "Apartment",
+         "flats": "Apartment", "شقة": "Apartment", "شقق": "Apartment", "hotel": "Hotel", "hotel rooms": "Hotel"}
+
+
+def _norm(value: Optional[str], table: dict) -> Optional[str]:
+    if not value:
+        return value
+    v = value.strip()
+    return table.get(v.lower(), table.get(v, v))
 
 
 def _rows(sql: str, params: list) -> list[dict]:
@@ -83,6 +110,7 @@ def search_wasalt_listings(
     sort_by: SortBy = "price_asc",
     limit: int = 8,
 ) -> dict:
+    city, property_type = _norm(city, _CITY), _norm(property_type, _TYPE)
     where, p = ["price IS NOT NULL"], []
     if city:
         where.append("city LIKE ?"); p.append(f"%{city}%")
@@ -129,6 +157,7 @@ def wasalt_market_stats(
     sort_districts_by: DistrictSort = "listings",
     top_n: int = 8,
 ) -> dict:
+    city, property_type = _norm(city, _CITY), _norm(property_type, _TYPE)
     where, p = ["price IS NOT NULL"], []
     if city:
         where.append("city LIKE ?"); p.append(f"%{city}%")
@@ -163,6 +192,7 @@ def search_darglobal_projects(
     bedrooms: Optional[int] = None,
     name_contains: Optional[str] = None,
 ) -> dict:
+    country, city, project_type = _norm(country, _COUNTRY), _norm(city, _CITY), _norm(project_type, _TYPE)
     where, p = ["1=1"], []
     if country:
         where.append("country LIKE ?"); p.append(f"%{country}%")
@@ -200,11 +230,25 @@ def _sql_str(v: str) -> str:
     return v.replace("'", "''")
 
 
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+_CMS_NOISE = re.compile(r"(?i)(image update|webp|hero banner|^[a-z0-9]+(-[a-z0-9]+){2,}$)")
+PASSAGE_CHARS = 900  # per passage sent to the model (keeps a 4-passage search under ~1,000 tokens)
+
+
+def _clean_passage(text: str) -> str:
+    """Drop CMS leftovers (image ids, upload notes, url slugs) and trim to PASSAGE_CHARS."""
+    lines = [l for l in text.split("\n")
+             if l.strip() and not _UUID.match(l.strip()) and not _CMS_NOISE.search(l.strip())]
+    out = "\n".join(lines)
+    return out if len(out) <= PASSAGE_CHARS else out[:PASSAGE_CHARS].rsplit(" ", 1)[0] + " …"
+
+
 def search_knowledge(
     query: str,
     source: Optional[Literal["darglobal", "wasalt"]] = None,
     city: Optional[str] = None,
-    limit: int = 6,
+    limit: int = 4,
+    per_doc: int = 1,
 ) -> dict:
     """Hybrid retrieval: vector (meaning) + BM25 (exact words), fused with Reciprocal Rank Fusion."""
     tbl = _chunks()
@@ -212,7 +256,10 @@ def search_knowledge(
     if source:
         filters.append(f"source = '{_sql_str(source)}'")
     if city:
-        filters.append(f"city = '{_sql_str(city)}'")
+        # DarGlobal chunks store the first part of the location (often a district such as "Amaya"),
+        # so also match the city anywhere in the chunk text, whose header carries the full location.
+        c = _sql_str(_norm(city, _CITY))
+        filters.append(f"(city = '{c}' OR text LIKE '%{c}%')")
     where = " AND ".join(filters) or None
     k = 20
     cols = ["id", "doc_id", "source", "kind", "title", "url", "city", "text"]
@@ -240,11 +287,11 @@ def search_knowledge(
     results, seen_docs = [], {}
     for cid in ranked:
         h = by_id[cid]
-        if seen_docs.get(h["doc_id"], 0) >= 2:  # at most 2 chunks per document
+        if seen_docs.get(h["doc_id"], 0) >= per_doc:  # diversity: one passage per document by default
             continue
         seen_docs[h["doc_id"]] = seen_docs.get(h["doc_id"], 0) + 1
         results.append({"title": h["title"], "source": h["source"], "kind": h["kind"],
-                        "url": h["url"], "text": h["text"][:1500]})
+                        "url": h["url"], "text": _clean_passage(h["text"])})
         if len(results) >= limit:
             break
     return {"query": query, "results": results}

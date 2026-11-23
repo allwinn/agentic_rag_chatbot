@@ -138,14 +138,20 @@ def clean_darglobal(projects: list, docs: list):
         h = hashlib.md5(d["text"].encode()).hexdigest()
         if h in by_hash:
             by_hash[h].setdefault("also", []).append(d["title"])
+            by_hash[h].setdefault("also_loc", []).append((d.get("metadata") or {}).get("location"))
         else:
             by_hash[h] = d
     merged = []
     for d in by_hash.values():
         if d.get("also"):
             names = [d["title"]] + d["also"]
+            locs = [(d.get("metadata") or {}).get("location")] + d.get("also_loc", [])
+            locs = "; ".join(dict.fromkeys(l for l in locs if l)) or "Various locations"
+            # one shared page covering several projects: label it with all their locations, and no
+            # single country/city, so a city filter doesn't treat it as e.g. a Dubai-only project
             d = {**d, "title": "One of One collection: " + "; ".join(names),
-                 "metadata": {**(d.get("metadata") or {}), "projects": names}}
+                 "metadata": {**(d.get("metadata") or {}), "projects": names,
+                              "location": locs, "country": ""}}
         merged.append(d)
     stats = {"boilerplate_lines_removed": len(boilerplate),
              "duplicate_pages_merged": len(project_docs) - len(merged)}
@@ -246,7 +252,7 @@ def make_chunks(dg_docs: list, w_docs: list) -> list[dict]:
             chunks.append({
                 "id": f"{d['id']}#{i}", "doc_id": d["id"], "source": "darglobal", "kind": d["kind"],
                 "title": d["title"], "url": d["url"],
-                "city": first_city(md.get("location")) or "", "country": COUNTRY_ALIASES.get(md.get("country"), md.get("country") or ""),
+                "city": "" if md.get("projects") else (first_city(md.get("location")) or ""), "country": COUNTRY_ALIASES.get(md.get("country"), md.get("country") or ""),
                 "price": None,
                 "text": f"{header}\n{body}",  # contextual header: every chunk knows its project
             })
