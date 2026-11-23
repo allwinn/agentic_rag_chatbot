@@ -1,5 +1,5 @@
 {
-  "built_at": "2026-11-19T04:14:02.226912+00:00",
+  "built_at": "2026-11-23T10:07:34.055293+00:00",
   "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
   "embedding_backend": "fastembed",
   "dim": 384,
@@ -24,10 +24,36 @@
   },
   "wasalt_projects": 16,
   "wasalt_dropped_non_residential": 2,
-  "chunks_total": 1062,
+  "chunks_total": 1061,
   "chunks_by_source": {
-    "darglobal": 91,
+    "darglobal": 90,
     "wasalt": 971
   },
+  "chunks_without_location": 0,
+  "darglobal_locations": [
+    "149 Old Park Lane, London, United Kingdom",
+    "AIDA | Oman",
+    "AIDA, Muscat, Oman",
+    "Aida, Oman",
+    "Al Marjan Island, RAK, UAE",
+    "Amaya, Jeddah, KSA",
+    "Benahav\u00eds, Spain",
+    "Cortesin, Spain",
+    "Doha, Qatar",
+    "Dubai, UAE",
+    "Dubai, UAE; Al Marjan Island, RAK, UAE; Benahav\u00eds, Spain; AIDA | Oman; Overlooking Hyde Park, London, England",
+    "Dubai, United Arab Emirates",
+    "Jeddah, KSA",
+    "Muscat, Oman",
+    "Oman",
+    "Qatar",
+    "Rayana, Wadi Safar, Riyadh",
+    "Riyadh, KSA",
+    "Saudi Arabia",
+    "Simaisma, Qatar",
+    "Spain",
+    "UAE",
+    "Wadi Safar, Riyadh, Saudi Arabia"
+  ],
   "data_scraped_at": "2026-11-19T03:59:51.524119+00:00"
 }

@@ -46,7 +46,7 @@ flowchart LR
 | **Follow-up questions** | Three clickable follow-up questions after every answer (for example a narrower filter, the other city, or a mortgage on a result); clicking one continues the conversation |
 | **Contact routes** | DarGlobal's official phone, WhatsApp and office; for Wasalt, a link to the listing (private sellers' numbers are never shared) |
 | **English and Arabic** | Ask in either language; the answer comes back in the same one |
-| **Conversation memory** | Follow-ups like "the cheapest one" or "same in Jeddah" refer back to earlier answers in the session |
+| **Conversation memory** | Follow-ups like "the cheapest one" or "same in Jeddah" refer back to earlier answers in the session. The last 2 questions keep their full tool results; older results are summarised (names, prices, links) so long chats don't keep growing in tokens |
 | **Starter questions** | Six one-click examples on the home screen, each using several tools |
 
 **How they're built**

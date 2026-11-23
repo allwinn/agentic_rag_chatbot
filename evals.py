@@ -192,6 +192,30 @@ _PHONE = re.compile(r"(?:\+|00)9\d{2}[\s-]?\d[\d\s-]{6,}|\b05\d[\s-]?\d{3}[\s-]?
 _PRICE = re.compile(r"(AED|SAR|USD|GBP|EUR|QAR|OMR|\$|£|€)\s?\d", re.I)
 
 
+_FILLER = {"al", "el", "ar", "as", "ash", "an", "at", "the", "by", "of", "in", "interiors",
+           "design", "inspired", "residences", "residence"}
+
+
+def _canon(text: str) -> str:
+    """Lowercase, turn hyphens/punctuation into spaces and drop filler words, so
+    'D-Villas At Jumeirah Golf Estates' ~ 'D-Villas Jumeirah Golf Estates' and 'Al-Rawdah' ~ 'Al Rawdah'."""
+    words = re.sub(r"[^\w\u0600-\u06ff]+", " ", text.lower()).split()
+    return " ".join(w for w in words if w not in _FILLER)
+
+
+def text_ok(answer: str, expected: str) -> bool:
+    if not expected:
+        return False
+    if expected.lower() in answer.lower():
+        return True
+    exp, ans = _canon(expected), _canon(answer)
+    if exp and exp in ans:
+        return True
+    # distinctive short name: the part before " at " / " by " / ", " (e.g. "D-Villas", "Da Vinci Tower")
+    short = re.split(r"(?i)\s+(?:at|by)\s+|,", expected)[0].strip()
+    return len(short) >= 5 and _canon(short) != "" and _canon(short) in ans
+
+
 def numbers_in(text: str) -> list[float]:
     out = []
     for m in _NUM.finditer(text.translate(_AR_DIGITS)):
@@ -301,7 +325,7 @@ async def _run_case(case: Case, retries: int = 5) -> dict:
         if isinstance(f, Num):
             checks[key] = num_ok(answer, f.value(), f.tol)
         else:
-            checks[key] = any(s.lower() in answer.lower() for s in f.any_of() if s)
+            checks[key] = any(text_ok(answer, s) for s in f.any_of() if s)
     if case.cite:
         checks["cites"] = bool(re.search(r"\]\(https?://", answer))
     if case.arabic:

@@ -12,6 +12,7 @@ CLI test:  python agent.py                       -> interactive chat in the term
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from dataclasses import dataclass, field
 
@@ -20,7 +21,10 @@ import sys
 from datetime import date
 
 from dotenv import load_dotenv
+from dataclasses import replace as dc_replace
+
 from pydantic_ai import Agent, ModelRetry, RunContext
+from pydantic_ai.messages import ModelMessage, ModelRequest, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
@@ -116,7 +120,65 @@ class Deps:
                 seen.add(r["url"])
 
 
-agent = Agent(build_model(), instructions=instructions, deps_type=Deps, retries=2)
+# ------------------------------------------------------------------ history trimming
+# Every model request resends the whole conversation. Old tool results (passages, listing rows)
+# are the bulk of it and are rarely needed again, because the agent's written answers already
+# carry the key facts. So: the last KEEP_FULL_TURNS questions keep everything; older tool results
+# are replaced by a one-line summary. Results are shortened, never removed, so every tool call
+# still has its matching result (APIs reject a call without one).
+KEEP_FULL_TURNS = int(os.getenv("KEEP_FULL_TURNS", "2"))
+_TRIMMED_NOTE = "Older result shortened to save tokens. Call the tool again if you need its details."
+
+
+def _summarise_result(tool: str, content):
+    if not isinstance(content, dict) or content.get("trimmed"):
+        return content  # already short, or already summarised
+    if "results" in content:  # search_knowledge
+        titles = "; ".join(r.get("title", "")[:60] for r in content["results"])
+        summary = f"{len(content['results'])} passages: {titles}"
+    elif "listings" in content:  # search_wasalt_listings: keep what follow-ups refer to
+        rows = [f"{r.get('title')} | {r.get('district')}, {r.get('city')} | "
+                f"{r.get('currency', 'SAR')} {r.get('price'):,.0f} | {r.get('url')}"
+                if isinstance(r.get("price"), (int, float)) else f"{r.get('title')} | {r.get('url')}"
+                for r in content["listings"]]
+        summary = f"{content.get('total_matching')} matching; shown: " + " || ".join(rows)
+    elif "projects" in content:  # search_darglobal_projects
+        summary = f"{content.get('count')} projects: " + "; ".join(
+            f"{r.get('title')} ({r.get('url')})" for r in content["projects"][:12])
+    else:  # stats, calculators, contacts: already small
+        text = json.dumps(content, ensure_ascii=False, default=str)
+        if len(text) <= 400:
+            return content
+        summary = text[:400] + "…"
+    return {"trimmed": True, "tool": tool, "summary": summary, "note": _TRIMMED_NOTE}
+
+
+def trim_old_tool_results(messages: list[ModelMessage]) -> list[ModelMessage]:
+    question_starts = [i for i, m in enumerate(messages)
+                       if isinstance(m, ModelRequest) and any(isinstance(p, UserPromptPart) for p in m.parts)]
+    if len(question_starts) <= KEEP_FULL_TURNS:
+        return messages
+    cutoff = question_starts[-KEEP_FULL_TURNS]
+    out: list[ModelMessage] = []
+    for i, m in enumerate(messages):
+        if i < cutoff and isinstance(m, ModelRequest) and any(isinstance(p, ToolReturnPart) for p in m.parts):
+            m = dc_replace(m, parts=[
+                dc_replace(p, content=_summarise_result(p.tool_name, p.content))
+                if isinstance(p, ToolReturnPart) else p for p in m.parts])
+        out.append(m)
+    return out
+
+
+def _history_kwargs() -> dict:
+    """pydantic-ai 2.x registers processors as a capability; 1.x took history_processors=."""
+    try:
+        from pydantic_ai.capabilities import ProcessHistory
+        return {"capabilities": [ProcessHistory(trim_old_tool_results)]}
+    except ImportError:
+        return {"history_processors": [trim_old_tool_results]}
+
+
+agent = Agent(build_model(), instructions=instructions, deps_type=Deps, retries=2, **_history_kwargs())
 
 
 # ------------------------------------------------------------------ tools

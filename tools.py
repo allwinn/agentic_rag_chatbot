@@ -53,8 +53,15 @@ _COUNTRY = {
     "المملكة المتحدة": "UK", "oman": "Oman", "عمان": "Oman", "عُمان": "Oman", "qatar": "Qatar",
     "قطر": "Qatar", "spain": "Spain", "إسبانيا": "Spain", "اسبانيا": "Spain",
 }
+# City -> country, so a city search also includes that country's location guide
+_CITY_COUNTRY = {"Dubai": "UAE", "Abu Dhabi": "UAE", "RAK": "UAE", "Riyadh": "Saudi Arabia",
+                 "Jeddah": "Saudi Arabia", "Muscat": "Oman", "Doha": "Qatar", "London": "UK",
+                 "Marbella": "Spain"}
+
 _CITY = {"الرياض": "Riyadh", "riyadh": "Riyadh", "جدة": "Jeddah", "جده": "Jeddah", "jeddah": "Jeddah",
-         "jedda": "Jeddah", "دبي": "Dubai", "مسقط": "Muscat", "الدوحة": "Doha", "لندن": "London"}
+         "jedda": "Jeddah", "دبي": "Dubai", "dubai": "Dubai",
+         "ras al khaimah": "RAK", "ras al-khaimah": "RAK", "rak": "RAK", "رأس الخيمة": "RAK",
+         "al marjan island": "RAK", "marjan island": "RAK", "مسقط": "Muscat", "الدوحة": "Doha", "لندن": "London"}
 _TYPE = {"villa": "Villa", "villas": "Villa", "فيلا": "Villa", "فلل": "Villa", "فيلل": "Villa",
          "townhouse": "Villa", "apartment": "Apartment", "apartments": "Apartment", "flat": "Apartment",
          "flats": "Apartment", "شقة": "Apartment", "شقق": "Apartment", "hotel": "Hotel", "hotel rooms": "Hotel"}
@@ -172,9 +179,13 @@ def wasalt_market_stats(
                 MAX(price) AS max_price, ROUND(AVG(price_per_sqm)) AS avg_price_per_sqm"""
     if group_by_district:
         order = _DISTRICT_SORT.get(sort_districts_by, "listings DESC")
+        # ranking by price/m2 needs >= 2 listings that HAVE a price/m2 (some listings have no area),
+        # otherwise one listing's figure would be presented as a district average
+        per_sqm = 1 if sort_districts_by.startswith("price_per_sqm") else 0
         rows = _rows(f"""SELECT city, district, {select} FROM wasalt_listings WHERE {w}
-                         GROUP BY city, district HAVING COUNT(*) >= 2 AND AVG(price_per_sqm) IS NOT NULL
-                         ORDER BY {order} LIMIT ?""", p + [max(1, min(top_n, 15))])
+                         GROUP BY city, district HAVING COUNT(*) >= 2
+                         AND (? = 0 OR COUNT(price_per_sqm) >= 2)
+                         ORDER BY {order} LIMIT ?""", p + [per_sqm, max(1, min(top_n, 15))])
         return {"currency": "SAR", "by_district": rows,
                 "note": "Districts with fewer than 2 listings are omitted. Sample data, not the full market."}
     row = _rows(f"SELECT {select} FROM wasalt_listings WHERE {w}", p)[0]
@@ -256,10 +267,17 @@ def search_knowledge(
     if source:
         filters.append(f"source = '{_sql_str(source)}'")
     if city:
-        # DarGlobal chunks store the first part of the location (often a district such as "Amaya"),
-        # so also match the city anywhere in the chunk text, whose header carries the full location.
         c = _sql_str(_norm(city, _CITY))
-        filters.append(f"(city = '{c}' OR text LIKE '%{c}%')")
+        if "location" in tbl.schema.names:
+            # Match where the passage IS (its project/listing location), not every page that merely
+            # mentions the city; plus that country's location guide.
+            cond = f"city = '{c}' OR location LIKE '%{c}%'"
+            country = _CITY_COUNTRY.get(c)
+            if country:
+                cond += f" OR (kind = 'location_guide' AND country = '{_sql_str(country)}')"
+            filters.append(f"({cond})")
+        else:  # index built before the location column existed
+            filters.append(f"(city = '{c}' OR text LIKE '%{c}%')")
     where = " AND ".join(filters) or None
     k = 20
     cols = ["id", "doc_id", "source", "kind", "title", "url", "city", "text"]

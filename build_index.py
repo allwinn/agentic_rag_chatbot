@@ -63,6 +63,37 @@ def year_of(text: str | None) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def strip_sidebar(text: str) -> str:
+    """Remove the 'Other projects' cross-link block (other projects' names + locations). It differs
+    per page, so duplicate-line removal misses it, and it made pages match other cities."""
+    out, skipping, skipped = [], False, 0
+    for line in text.splitlines():
+        t = line.strip().lower()
+        if t == "other projects":
+            skipping, skipped = True, 0
+            continue
+        if skipping:
+            skipped += 1
+            if t == "view all projects" or skipped > 12:
+                skipping = False
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+GUIDE_COUNTRY = {"uae": "UAE", "saudi": "Saudi Arabia", "oman": "Oman", "qatar": "Qatar",
+                 "spain": "Spain", "uk": "UK", "united-kingdom": "UK", "london": "UK"}
+
+
+def guide_country(url: str) -> str:
+    """properties-in-uae -> UAE (location guides are country-level pages)."""
+    slug = url.rstrip("/").rsplit("/", 1)[-1].lower()
+    for key, country in GUIDE_COUNTRY.items():
+        if key in slug:
+            return country
+    return ""
+
+
 def project_status(sold_out: bool, completion: str | None) -> str:
     if sold_out:
         return "Sold out"
@@ -122,6 +153,10 @@ def clean_darglobal(projects: list, docs: list):
 
     project_docs = [d for d in docs if d.get("kind") == "project"]
     other_docs = [d for d in docs if d.get("kind") != "project"]
+
+    # 0) drop the "Other projects" sidebar (cross-links to other cities' projects)
+    for d in project_docs:
+        d["text"] = strip_sidebar(d["text"])
 
     # 1) strip site chrome: lines repeated across many project pages
     line_freq = Counter()
@@ -244,15 +279,22 @@ def make_chunks(dg_docs: list, w_docs: list) -> list[dict]:
     chunks = []
     for d in dg_docs:
         md = d.get("metadata") or {}
+        if d["kind"] == "project":
+            location = md.get("location") or ""
+            country = COUNTRY_ALIASES.get(md.get("country"), md.get("country") or "")
+        else:  # location guide: a country-level page
+            country = guide_country(d["url"])
+            location = country
         header = f"{d['title']}"
-        if md.get("location"):
-            header += f" | {md['location']}"
+        if location:
+            header += f" | {location}"
         header += " | DarGlobal " + ("project" if d["kind"] == "project" else "location guide")
         for i, body in enumerate(chunk_text(d["text"])):
             chunks.append({
                 "id": f"{d['id']}#{i}", "doc_id": d["id"], "source": "darglobal", "kind": d["kind"],
                 "title": d["title"], "url": d["url"],
-                "city": "" if md.get("projects") else (first_city(md.get("location")) or ""), "country": COUNTRY_ALIASES.get(md.get("country"), md.get("country") or ""),
+                "city": "" if md.get("projects") else (first_city(location) or ""),
+                "country": country, "location": location,  # location: used by the city filter
                 "price": None,
                 "text": f"{header}\n{body}",  # contextual header: every chunk knows its project
             })
@@ -262,6 +304,7 @@ def make_chunks(dg_docs: list, w_docs: list) -> list[dict]:
             "id": d["id"], "doc_id": d["id"], "source": "wasalt", "kind": d["kind"],
             "title": d["title"] or "", "url": d["url"],
             "city": md.get("city") or "", "country": "Saudi Arabia",
+            "location": ", ".join(x for x in [md.get("district"), md.get("city")] if x),
             "price": float(md["price"]) if md.get("price") else None,
             "text": d["text"],
         })
@@ -274,7 +317,7 @@ def build_lance(chunks: list[dict]) -> None:
     schema = pa.schema([
         ("id", pa.string()), ("doc_id", pa.string()), ("source", pa.string()), ("kind", pa.string()),
         ("title", pa.string()), ("url", pa.string()), ("city", pa.string()), ("country", pa.string()),
-        ("price", pa.float64()), ("text", pa.string()), ("vector", pa.list_(pa.float32(), DIM)),
+        ("location", pa.string()), ("price", pa.float64()), ("text", pa.string()), ("vector", pa.list_(pa.float32(), DIM)),
     ])
     data = [{**c, "vector": v.tolist()} for c, v in zip(chunks, vecs)]
     db = lancedb.connect(LANCE_DIR)
@@ -314,6 +357,8 @@ def main() -> None:
         "wasalt_dropped_non_residential": sum(1 for r in w_rows if r["kind"] == "listing") - len(w_listings),
         "chunks_total": len(chunks),
         "chunks_by_source": Counter(c["source"] for c in chunks),
+        "chunks_without_location": sum(1 for c in chunks if not c.get("location")),
+        "darglobal_locations": sorted({c["location"] for c in chunks if c["source"] == "darglobal"}),
         "data_scraped_at": max((r.get("scraped_at") or "" for r in w_listings + dg_rows), default=None),
     }
     (DATA / "index_report.json").write_text(json.dumps(report, indent=2))
